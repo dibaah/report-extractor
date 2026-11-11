@@ -1,0 +1,25 @@
+name: Build Windows Archive
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pyinstaller
+      - name: Build portable application
+        run: pyinstaller --noconfirm --clean --onedir --name CTEP-Shift-Report-Archive --add-data "data;data" --hidden-import uvicorn.logging --hidden-import uvicorn.loops --hidden-import uvicorn.protocols --hidden-import uvicorn.lifespan run_archive.py
+      - name: Package release
+        run: Compress-Archive -Path dist/CTEP-Shift-Report-Archive/* -DestinationPath CTEP-Shift-Report-Archive-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CTEP-Shift-Report-Archive-Windows
+          path: CTEP-Shift-Report-Archive-Windows.zip
