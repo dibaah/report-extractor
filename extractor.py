@@ -121,34 +121,19 @@ def parse_report(path: Path):
 
 
 def collect_excel_files(paths):
-    """Accept files AND folders; scan folders recursively (e.g. year subfolders)."""
+    """Accept single Excel files AND folders; scan folders recursively (e.g. year subfolders).
+
+    Examples:
+        py -3 extractor.py outlook_import                 -> folder + all subfolders
+        py -3 extractor.py outlook_import/CWRS-xxx.xlsx   -> a single loose file
+        py -3 extractor.py folder1 file1.xlsx file2.xlsx  -> any mix of both
+    """
     files, seen = [], set()
     for raw in paths:
-        p = Path(raw)
-        if p.is_dir():
-            candidates = p.rglob("*")
-        elif p.is_file():
-            candidates = [p]
-        else:
-            print(f"[!] Path not found, skipped: {p}")
-            continue
-        for f in candidates:
-            if not f.is_file() or f.suffix.lower() not in EXCEL_EXTS or f.name.startswith("~$"):
-                continue
-            key = str(f.resolve()).lower()
-            if key not in seen:
-                seen.add(key); files.append(f)
-    return sorted(files, key=lambda x: str(x).lower())
-
-EXCEL_EXTS = {".xlsx", ".xlsm"}
-
-def collect_excel_files(paths):
-    files, seen = [], set()
-    for raw in paths:
-        p = Path(raw).resolve()
+        p = Path(raw).expanduser().resolve()
         print(f"[i] Scanning: {p}")
         if p.is_dir():
-            candidates = sorted(p.rglob("*"))   # ← همه‌ی زیرپوشه‌ها (2018..2026)
+            candidates = sorted(p.rglob("*"))   # شامل همه‌ی زیرپوشه‌ها (مثلاً 2018..2026)
         elif p.is_file():
             candidates = [p]
         else:
@@ -166,7 +151,7 @@ def collect_excel_files(paths):
                 xls_count += 1
             if ext not in EXCEL_EXTS or f.name.startswith("~$"):
                 continue
-            key = str(f.resolve()).lower()
+            key = str(f)
             if key not in seen:
                 seen.add(key)
                 files.append(f)
@@ -174,7 +159,18 @@ def collect_excel_files(paths):
             print(f"    [{folder}] " + ", ".join(f"{n} x {e}" for e, n in sorted(exts.items())))
         if xls_count:
             print(f"[!] {xls_count} old .xls file(s) found - convert to .xlsx first (Excel > Save As).")
-    return sorted(files, key=lambda x: str(x).lower())
+    return sorted(set_by_path(files), key=lambda x: str(x).lower())
+
+
+def set_by_path(files):
+    """De-duplicate the final list by resolved path (case-insensitive on Windows)."""
+    unique, seen = [], set()
+    for f in files:
+        key = str(Path(f).resolve()).lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(f)
+    return unique
 
 def initialize_db(conn):
     conn.executescript("""
@@ -273,8 +269,8 @@ def import_files(files, db_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Import CTEP shift-report Excel files into a local SQLite archive.")
-    parser.add_argument("paths", nargs="*", default=[str(Path(__file__).parent / "outlook_import")],
-                        help="Excel files and/or folders (scanned recursively)")
+    parser.add_argument("paths", nargs="*", default=[str(DEFAULT_INPUT)],
+                        help="Excel files and/or folders (folders are scanned recursively)")
     parser.add_argument("--db", default=str(DEFAULT_DB), help="SQLite database path")
     args = parser.parse_args()
     files = collect_excel_files(args.paths)

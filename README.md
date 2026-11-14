@@ -24,9 +24,14 @@ The dashboard binds to localhost only.
 - The scheduled exporter runs while the dashboard application is running.
 
 ## Import reports
+Both a **folder** and a **single Excel file** are supported (folders are scanned recursively, including subfolders):
 ```powershell
-py -3 .\extractor.py "C:\path\to\CWRS-report.xlsx"
+py -3 .\extractor.py                                  # default: whole .\outlook_import folder + subfolders
+py -3 .\extractor.py "C:\path\to\folder"              # a folder (all .xlsx/.xlsm inside, recursively)
+py -3 .\extractor.py "C:\path\to\CWRS-report.xlsx"    # a single Excel file outside any folder
+py -3 .\extractor.py "C:\folder" "C:\one\report.xlsx" # any mix of folders and files at once
 ```
+Duplicate paths (e.g. passing a file that is also inside a passed folder) are ignored automatically.
 
 ## Build
 The GitHub Actions workflow at `.github/workflows/build-windows.yml` builds a Windows portable application folder and packages it as a ZIP when manually triggered or when a `v*` tag is pushed. Add this project to a GitHub repository to use the workflow.
