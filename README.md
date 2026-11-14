@@ -33,6 +33,21 @@ py -3 .\extractor.py "C:\folder" "C:\one\report.xlsx" # any mix of folders and f
 ```
 Duplicate paths (e.g. passing a file that is also inside a passed folder) are ignored automatically.
 
+## Automatic Outlook import (every 3 hours)
+Two files handle the fully automatic flow:
+
+- `auto_outlook_import.ps1` – one run = connects to Outlook, saves new `CWRS-*.xlsx/.xlsm` attachments from *Inbox ▸ 1. Report ▸ C. Reports Archive* into `outlook_import\`, then runs `extractor.py` to import them into the archive DB. Already-imported reports are skipped automatically, so repeated runs are safe. Log: `logs\auto_outlook_import.log`.
+- `install_autorun_task.bat` – creates a Windows Scheduled Task (**CTEP Outlook Auto Import**) that runs the script **every 3 hours** under your user account. Double-click it once to install.
+
+Useful commands:
+```powershell
+schtasks /Run   /TN "CTEP Outlook Auto Import"   # test run right now
+schtasks /Query /TN "CTEP Outlook Auto Import" /V # next/last run times
+schtasks /Delete /TN "CTEP Outlook Auto Import" /F # uninstall
+```
+
+Requirements: Windows + desktop Outlook installed and logged in (the task only works while you're signed in; Outlook may show an antivirus/permission prompt on first attachment access). To change mailbox or folder, edit `$mailboxName` / `$folderPath` at the top of `auto_outlook_import.ps1`.
+
 ## Build
 The GitHub Actions workflow at `.github/workflows/build-windows.yml` builds a Windows portable application folder and packages it as a ZIP when manually triggered or when a `v*` tag is pushed. Add this project to a GitHub repository to use the workflow.
 
