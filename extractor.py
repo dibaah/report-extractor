@@ -11,6 +11,8 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 DEFAULT_DB = Path(__file__).parent / "data" / "ctep_archive.db"
+DEFAULT_INPUT = Path(__file__).parent / "outlook_import"
+EXCEL_EXTS = {".xlsx", ".xlsm"}
 
 
 def clean(value):
@@ -117,6 +119,28 @@ def parse_report(path: Path):
     return report
 
 
+
+def collect_excel_files(paths):
+    """Accept files AND folders; scan folders recursively (e.g. year subfolders)."""
+    files, seen = [], set()
+    for raw in paths:
+        p = Path(raw)
+        if p.is_dir():
+            candidates = p.rglob("*")
+        elif p.is_file():
+            candidates = [p]
+        else:
+            print(f"[!] Path not found, skipped: {p}")
+            continue
+        for f in candidates:
+            if not f.is_file() or f.suffix.lower() not in EXCEL_EXTS or f.name.startswith("~$"):
+                continue
+            key = str(f.resolve()).lower()
+            if key not in seen:
+                seen.add(key); files.append(f)
+    return sorted(files, key=lambda x: str(x).lower())
+
+
 def initialize_db(conn):
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS reports (
@@ -214,7 +238,13 @@ def import_files(files, db_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Import CTEP shift-report Excel files into a local SQLite archive.")
-    parser.add_argument("files", nargs="+", help="Excel report files to import")
+    parser.add_argument("paths", nargs="*", default=[str(DEFAULT_INPUT)],
+                        help="Excel files and/or folders (folders are scanned recursively, e.g. outlook_import\\2026)")
     parser.add_argument("--db", default=str(DEFAULT_DB), help="SQLite database path")
     args = parser.parse_args()
-    import_files(args.files, Path(args.db))
+    files = collect_excel_files(args.paths)
+    if not files:
+        print(f"No Excel files (.xlsx/.xlsm) found in: {', '.join(args.paths)}")
+        raise SystemExit(1)
+    print(f"Found {len(files)} Excel file(s) incl. subfolders.")
+    import_files(files, Path(args.db))
