@@ -58,7 +58,6 @@ def export_excel():
                "Activity Report", "Shutdown Info", "Team Info", "Remarks", "Full Text", "Imported At"]
     ws.append(headers)
     for row in rows:
-        ws.append([row[h.lower().replace(" ", "_").replace(".", "")] if False else None for h in []]) if False else None
         ws.append([row[k] for k in ("doc_no", "report_date", "shift_type", "shift", "supervisor", "source_filename",
                                     "activity_report", "shutdown_info", "team_info", "remarks", "full_text", "imported_at")])
     for cell in ws[1]:
