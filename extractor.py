@@ -140,6 +140,41 @@ def collect_excel_files(paths):
                 seen.add(key); files.append(f)
     return sorted(files, key=lambda x: str(x).lower())
 
+EXCEL_EXTS = {".xlsx", ".xlsm"}
+
+def collect_excel_files(paths):
+    files, seen = [], set()
+    for raw in paths:
+        p = Path(raw).resolve()
+        print(f"[i] Scanning: {p}")
+        if p.is_dir():
+            candidates = sorted(p.rglob("*"))   # ← همه‌ی زیرپوشه‌ها (2018..2026)
+        elif p.is_file():
+            candidates = [p]
+        else:
+            print(f"[!] Path not found: {p}")
+            continue
+        stats, xls_count = {}, 0
+        for f in candidates:
+            if not f.is_file():
+                continue
+            ext = f.suffix.lower()
+            folder = str(f.parent.relative_to(p)) if p.is_dir() else "."
+            stats.setdefault(folder, {})
+            stats[folder][ext] = stats[folder].get(ext, 0) + 1
+            if ext == ".xls":
+                xls_count += 1
+            if ext not in EXCEL_EXTS or f.name.startswith("~$"):
+                continue
+            key = str(f.resolve()).lower()
+            if key not in seen:
+                seen.add(key)
+                files.append(f)
+        for folder, exts in sorted(stats.items()):
+            print(f"    [{folder}] " + ", ".join(f"{n} x {e}" for e, n in sorted(exts.items())))
+        if xls_count:
+            print(f"[!] {xls_count} old .xls file(s) found - convert to .xlsx first (Excel > Save As).")
+    return sorted(files, key=lambda x: str(x).lower())
 
 def initialize_db(conn):
     conn.executescript("""
@@ -238,13 +273,13 @@ def import_files(files, db_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Import CTEP shift-report Excel files into a local SQLite archive.")
-    parser.add_argument("paths", nargs="*", default=[str(DEFAULT_INPUT)],
-                        help="Excel files and/or folders (folders are scanned recursively, e.g. outlook_import\\2026)")
+    parser.add_argument("paths", nargs="*", default=[str(Path(__file__).parent / "outlook_import")],
+                        help="Excel files and/or folders (scanned recursively)")
     parser.add_argument("--db", default=str(DEFAULT_DB), help="SQLite database path")
     args = parser.parse_args()
     files = collect_excel_files(args.paths)
     if not files:
-        print(f"No Excel files (.xlsx/.xlsm) found in: {', '.join(args.paths)}")
+        print("No .xlsx/.xlsm files found - nothing to import.")
         raise SystemExit(1)
     print(f"Found {len(files)} Excel file(s) incl. subfolders.")
     import_files(files, Path(args.db))
