@@ -229,6 +229,7 @@ def import_files(files, db_path):
     initialize_db(conn)
     imported = 0
     skipped = []
+    processed_paths = []
     for file_path in files:
         try:
             report = parse_report(Path(file_path))
@@ -249,8 +250,11 @@ def import_files(files, db_path):
             ))
             if cur.rowcount:
                 imported += 1
+                processed_paths.append(str(Path(file_path).resolve()))
             else:
                 skipped.append(f"{Path(file_path).name}: already imported")
+                # A duplicate is safe to archive: an identical report version is already in SQLite.
+                processed_paths.append(str(Path(file_path).resolve()))
         except Exception as exc:
             skipped.append(f"{Path(file_path).name}: {exc}")
     conn.commit()
@@ -265,6 +269,7 @@ def import_files(files, db_path):
         for item in skipped:
             print(" - " + item)
     conn.close()
+    return {"imported": imported, "total": total, "skipped": skipped, "processed_paths": processed_paths}
 
 
 if __name__ == "__main__":

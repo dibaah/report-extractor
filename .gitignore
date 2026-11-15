@@ -1,2 +1,7 @@
 __pycache__/
 logs/
+archive_settings.json
+processed_reports/
+data/*.db
+data/*.db-wal
+data/*.db-shm

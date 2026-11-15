@@ -3,55 +3,64 @@
 Local searchable archive for CTEP Day/Night shift reports.
 
 **Created by:** Farzad Meshkipour  
-**Version:** 1.1.0
+**Version:** 1.2.0
 
-## Scope and safeguards
-- CTEP Shift Reports only (Day/Night); Biweekly reports are excluded.
-- Original Outlook emails and Excel attachments are not modified.
-- Day/Night is identified from the document number suffix (D/N); Excel Shift A/B is retained separately.
-- SQLite stores searchable extracted report content and structured data.
-- Identical report versions are skipped during import.
+## Dashboard
 
-## Run locally
-Run `start_archive.bat`, then open http://127.0.0.1:8765.
+Run `start_archive.bat`. The dashboard opens in a dedicated Microsoft Edge app window at localhost. Closing that window stops the local API server. The app does not connect to Outlook directly.
 
-The dashboard binds to localhost only.
+## Manual import workflow
+
+1. Save Outlook Excel attachments into the configured Outlook Import folder.
+2. Click **Import Outlook Folder** in the dashboard.
+3. The importer scans all subfolders for `.xlsx` and `.xlsm` reports.
+4. SQLite duplicate protection skips identical report versions.
+5. Successfully imported reports and confirmed duplicates are moved to the configured processed folder, retaining their subfolder structure. Files that fail parsing/import remain in the import folder.
+6. The database records the processed file path so the Excel export can link to the original workbook.
+
+The import action does not delete source files. Do not configure the processed folder inside the import folder.
+
+## Settings
+
+The dashboard Settings panel controls:
+- Outlook Import folder (recursive scan)
+- Processed reports archive folder
+- Excel export destination
+- Automatic Excel export interval (1–168 hours), with enable/disable
+
+In development mode, settings and the SQLite database stay in the repository's local working folder. In the packaged Windows application, runtime data (SQLite database, settings, Outlook Import folder, processed reports and default Excel export) is stored under `%LOCALAPPDATA%\CTEP Shift Report Archive`, so updating the executable does not replace the user's archive. The SQLite database is excluded from Git to prevent operational report data from being synchronized to GitHub.
 
 ## Excel export
-- Use **Export to Excel** for an immediate export.
-- Open **Export Settings** to set the full .xlsx destination, interval in hours (1–168), and enable/disable automatic export.
-- Default interval is 3 hours. The same destination file is replaced on each successful export.
-- The scheduled exporter runs while the dashboard application is running.
 
-## Import reports
-Both a **folder** and a **single Excel file** are supported (folders are scanned recursively, including subfolders):
+The exported workbook contains:
+- Document No.
+- Report Date
+- Shift Type
+- Excel Shift
+- Supervisor
+- Activity Report
+- Original Excel (clickable hyperlink when the source file is available)
+
+Shutdown Info, Team Info, Remarks, Full Text and Imported At are intentionally excluded. Activity Report is flattened to reduce unnecessary line breaks and given a wider column.
+
+## Command-line importer
+
 ```powershell
-py -3 .\extractor.py                                  # default: whole .\outlook_import folder + subfolders
-py -3 .\extractor.py "C:\path\to\folder"              # a folder (all .xlsx/.xlsm inside, recursively)
-py -3 .\extractor.py "C:\path\to\CWRS-report.xlsx"    # a single Excel file outside any folder
-py -3 .\extractor.py "C:\folder" "C:\one\report.xlsx" # any mix of folders and files at once
-```
-Duplicate paths (e.g. passing a file that is also inside a passed folder) are ignored automatically.
-
-## Automatic Outlook import (every 3 hours)
-Two files handle the fully automatic flow:
-
-- `auto_outlook_import.ps1` – one run = connects to Outlook, saves new `CWRS-*.xlsx/.xlsm` attachments from *Inbox ▸ 1. Report ▸ C. Reports Archive* into `outlook_import\`, then runs `extractor.py` to import them into the archive DB. Already-imported reports are skipped automatically, so repeated runs are safe. Log: `logs\auto_outlook_import.log`.
-- `install_autorun_task.bat` – creates a Windows Scheduled Task (**CTEP Outlook Auto Import**) that runs the script **every 3 hours** under your user account. Double-click it once to install.
-
-Useful commands:
-```powershell
-schtasks /Run   /TN "CTEP Outlook Auto Import"   # test run right now
-schtasks /Query /TN "CTEP Outlook Auto Import" /V # next/last run times
-schtasks /Delete /TN "CTEP Outlook Auto Import" /F # uninstall
+py -3 .\extractor.py
+py -3 .\extractor.py "C:\path\to\folder"
+py -3 .\extractor.py "C:\path\to\report.xlsx"
 ```
 
-Requirements: Windows + desktop Outlook installed and logged in (the task only works while you're signed in; Outlook may show an antivirus/permission prompt on first attachment access). To change mailbox or folder, edit `$mailboxName` / `$folderPath` at the top of `auto_outlook_import.ps1`.
+Folders are scanned recursively. Only `.xlsx` and `.xlsm` are supported. Legacy `.xls` files must be converted first.
 
 ## Build
-The GitHub Actions workflow at `.github/workflows/build-windows.yml` builds a Windows portable application folder and packages it as a ZIP when manually triggered or when a `v*` tag is pushed. Add this project to a GitHub repository to use the workflow.
 
-## Current sample data
-- CWRS-20261106N
-- CWRS-20261107D
-- CWRS-20261107N
+GitHub Actions workflow: `.github/workflows/main.yml`. Run it manually from Actions or push a tag beginning with `v` (for example `v1.2.0`). It builds a Windows portable application folder and publishes a ZIP artifact.
+
+## Scope and safeguards
+
+- CTEP Shift Reports only (Day/Night); Biweekly reports are excluded.
+- Original Outlook emails are not modified.
+- Day/Night is identified from document number suffix (D/N); Excel Shift A/B is retained separately.
+- Identical report versions are skipped.
+- Files are moved only after a successful database commit; failed files remain in the import folder.
