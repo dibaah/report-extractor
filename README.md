@@ -9,9 +9,15 @@ Local searchable archive for CTEP Day/Night shift reports.
 
 Run `start_archive.bat`. The dashboard opens in a dedicated Microsoft Edge app window at localhost. Closing that window stops the local API server. The app does not connect to Outlook directly.
 
+## Outlook attachment export
+
+Run `Import_From_Outlook.bat` to save matching Excel attachments from the configured Outlook mailbox folder into the repository's `outlook_import` folder. The script uses the same mailbox and folder path as the previous exporter and writes a log to `logs\outlook_attachment_export.log`. It only saves attachments; it does not write to SQLite or move/delete Outlook emails.
+
+The export destination is based on the script's own location, so it always targets this repository's `outlook_import` folder rather than an old hard-coded Documents path.
+
 ## Manual import workflow
 
-1. Save Outlook Excel attachments into the configured Outlook Import folder.
+1. Run `Import_From_Outlook.bat` to save Outlook Excel attachments into `outlook_import`, or copy Excel files there manually.
 2. Click **Import Outlook Folder** in the dashboard.
 3. The importer scans all subfolders for `.xlsx` and `.xlsm` reports.
 4. SQLite duplicate protection skips identical report versions.

@@ -33,90 +33,141 @@ def unique_row_values(row):
 
 
 def parse_report(path: Path):
+    """Parse current and legacy CTEP Day/Night workbook templates."""
     wb = load_workbook(path, data_only=True, read_only=True)
-    if "CTEP Shift Report" not in wb.sheetnames:
-        raise ValueError(f"Missing CTEP Shift Report sheet: {path.name}")
-    ws = wb["CTEP Shift Report"]
+    try:
+        sheet_aliases = (
+            "CTEP Shift Report",
+            "CTEP Day Shift Report",
+            "CTEP Night Shift Report",
+        )
+        sheet_name = next((name for name in sheet_aliases if name in wb.sheetnames), None)
+        if not sheet_name:
+            raise ValueError(
+                f"Unsupported workbook template; expected one of {', '.join(sheet_aliases)}. "
+                f"Found sheets: {', '.join(wb.sheetnames)}"
+            )
+        ws = wb[sheet_name]
 
-    doc_no = clean(ws["G3"].value)
-    if not doc_no:
-        for row in ws.iter_rows(min_row=1, max_row=5):
-            for cell in row:
-                match = re.search(r"CWRS-\d{8}[DN]", clean(cell.value))
-                if match:
-                    doc_no = match.group(0)
+        # Prefer the document number embedded in the filename, then search workbook cells.
+        doc_match = re.search(r"(?:CWRS|CSR)-\d{8}[DN]?", path.stem, re.I)
+        doc_no = doc_match.group(0).upper() if doc_match else ""
+        if not doc_no:
+            for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, 6)):
+                for cell in row:
+                    match = re.search(r"(?:CWRS|CSR)-\d{8}[DN]?", clean(cell.value), re.I)
+                    if match:
+                        doc_no = match.group(0).upper()
+                        break
+                if doc_no:
                     break
-            if doc_no:
+
+        top_values = [
+            clean(cell.value)
+            for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, 5))
+            for cell in row
+            if clean(cell.value)
+        ]
+
+        shift = ""
+        for value in top_values:
+            match = re.search(r"Shift:\s*([A-Za-z0-9_-]+)", value, re.I)
+            if match:
+                shift = match.group(1).strip()
                 break
 
-    shift_text = clean(ws["C3"].value)
-    shift_match = re.search(r"Shift:\s*(.+)", shift_text, re.I)
-    shift = shift_match.group(1).strip() if shift_match else ""
-    shift_type = "Day" if doc_no.endswith("D") else "Night" if doc_no.endswith("N") else ""
+        # Some legacy Night workbooks were incorrectly named "CTEP Day Shift Report";
+        # the D/N suffix in the report number is the authoritative shift indicator.
+        if doc_no.endswith("D"):
+            shift_type = "Day"
+        elif doc_no.endswith("N"):
+            shift_type = "Night"
+        elif "day" in sheet_name.lower():
+            shift_type = "Day"
+        elif "night" in sheet_name.lower():
+            shift_type = "Night"
+        else:
+            shift_type = ""
 
-    supervisor_text = clean(ws["A3"].value)
-    supervisor = re.sub(r"^Supervisor:\s*", "", supervisor_text, flags=re.I).strip()
-
-    date_text = clean(ws["I3"].value)
-    date_match = re.search(r"Date:\s*(.+)", date_text, re.I)
-    date_value = date_match.group(1).strip() if date_match else ""
-    report_date = ""
-    if date_value:
-        for fmt in ("%Y-%b-%d", "%Y-%B-%d", "%Y-%m-%d"):
-            try:
-                report_date = datetime.strptime(date_value, fmt).date().isoformat()
+        supervisor = ""
+        for value in top_values:
+            match = re.search(r"(?:Supervisor|Day Duty|Night Duty)\s*:\s*(.+)", value, re.I)
+            if match:
+                supervisor = match.group(1).strip()
                 break
-            except ValueError:
-                pass
 
-    activity_report = clean(ws["F6"].value)
-    if not activity_report:
-        for row in ws.iter_rows(min_row=6, max_row=min(ws.max_row, 15)):
+        report_date = ""
+        # The document number's YYYYMMDD portion is the most reliable date source.
+        date_digits = re.search(r"(?:CWRS|CSR)-(\d{8})[DN]?", doc_no, re.I)
+        date_candidates = [date_digits.group(1)] if date_digits else []
+        for value in top_values:
+            match = re.search(r"Date:\s*(.+)", value, re.I)
+            if match:
+                date_candidates.append(match.group(1).strip())
+        date_formats = (
+            "%Y%m%d", "%Y-%b-%d", "%Y-%B-%d", "%Y-%m-%d",
+            "%d.%B.%Y", "%d.%b.%Y", "%d-%B-%Y", "%d-%b-%Y",
+            "%d/%m/%Y", "%m/%d/%Y",
+        )
+        for candidate in date_candidates:
+            for fmt in date_formats:
+                try:
+                    report_date = datetime.strptime(candidate, fmt).date().isoformat()
+                    break
+                except ValueError:
+                    continue
+            if report_date:
+                break
+
+        # Activity text moved between templates: current reports start at row 6,
+        # older Day/Night templates start around row 9 and use merged F:H cells.
+        activity_parts, activity_seen = [], set()
+        for row in ws.iter_rows(min_row=6, max_row=ws.max_row, min_col=6, max_col=min(ws.max_column, 8)):
             for cell in row:
                 value = clean(cell.value)
-                if len(value) > 100:
-                    activity_report = value
-                    break
-            if activity_report:
-                break
+                if not value or value.lower() == "activity report":
+                    continue
+                if value not in activity_seen and len(value) > 3:
+                    activity_seen.add(value)
+                    activity_parts.append(value)
+        activity_report = "\n".join(activity_parts)
 
-    rows = []
-    all_text = []
-    for row_idx, row in enumerate(ws.iter_rows(), start=1):
-        values = unique_row_values(row)
-        if values:
-            row_text = " | ".join(values)
-            rows.append({"row": row_idx, "values": values, "text": row_text})
-            all_text.extend(values)
+        rows = []
+        for row_idx, row in enumerate(ws.iter_rows(), start=1):
+            values = unique_row_values(row)
+            if values:
+                rows.append({"row": row_idx, "values": values, "text": " | ".join(values)})
 
-    # Retain a structured snapshot of the operational table without merged-cell duplicates.
-    operational_rows = [r for r in rows if 5 <= r["row"] <= 34]
-    shutdown_rows = [r for r in rows if 33 <= r["row"] <= 34]
-    member_rows = [r for r in rows if 35 <= r["row"] <= 37]
-    remark_rows = [r for r in rows if r["row"] >= 38 and r["row"] <= 40]
+        operational_rows = [r for r in rows if 5 <= r["row"] <= 34]
+        shutdown_rows = [r for r in rows if 33 <= r["row"] <= 34]
+        member_rows = [r for r in rows if 35 <= r["row"] <= 37]
+        remark_rows = [r for r in rows if 38 <= r["row"] <= 40]
+        full_text = "\n".join(r["text"] for r in rows)
+        content_hash = hashlib.sha256(full_text.encode("utf-8")).hexdigest()
 
-    full_text = "\n".join(r["text"] for r in rows)
-    content_hash = hashlib.sha256(full_text.encode("utf-8")).hexdigest()
-
-    report = {
-        "doc_no": doc_no,
-        "report_date": report_date,
-        "shift": shift,
-        "shift_type": shift_type,
-        "supervisor": supervisor,
-        "source_filename": path.name,
-        "source_path": str(path),
-        "activity_report": activity_report,
-        "shutdown_info": "\n".join(r["text"] for r in shutdown_rows),
-        "team_info": "\n".join(r["text"] for r in member_rows),
-        "remarks": "\n".join(r["text"] for r in remark_rows),
-        "operational_rows": operational_rows,
-        "all_rows": rows,
-        "full_text": full_text,
-        "content_hash": content_hash,
-    }
-    wb.close()
-    return report
+        if not doc_no:
+            raise ValueError("Could not identify document number (expected CWRS-/CSR-YYYYMMDD[D/N])")
+        if not report_date:
+            raise ValueError("Could not identify report date from document number or header")
+        return {
+            "doc_no": doc_no,
+            "report_date": report_date,
+            "shift": shift,
+            "shift_type": shift_type,
+            "supervisor": supervisor,
+            "source_filename": path.name,
+            "source_path": str(path),
+            "activity_report": activity_report,
+            "shutdown_info": "\n".join(r["text"] for r in shutdown_rows),
+            "team_info": "\n".join(r["text"] for r in member_rows),
+            "remarks": "\n".join(r["text"] for r in remark_rows),
+            "operational_rows": operational_rows,
+            "all_rows": rows,
+            "full_text": full_text,
+            "content_hash": content_hash,
+        }
+    finally:
+        wb.close()
 
 
 
